@@ -200,29 +200,31 @@ SYSCALL_DEFINE1(brk, unsigned long, brk)
 	*/
 	if (mm->prealloc_brk_size > 0) // the process has a preallocated heap
 	{
+		printk(KERN_INFO "brk syscall for process %i has a preallocated heap of size 0x%lx, mm->virtual_brk=0x%lx", current->pid, mm->prealloc_brk_size, mm->virtual_brk);
 		if (brk <= 0)
 		{
 			// the caller only wants to know the current brk, we must not proceed with the shrinking code
 			brk = mm->virtual_brk;
 			goto success;
 		}
-		printk(KERN_INFO "brk syscall for process %i, heap preallocation of size %lu", current->pid, mm->prealloc_brk_size);
 		if (brk == mm->virtual_brk)
 		{
 			// requested brk is already the virtual brk => nothing to do
-			goto success;
+			goto success; // and return the requested brk
 		}
 		else if (brk > mm->virtual_brk) // increase request
 		{
 			if (brk <= origbrk) // requested brk < real brk => we still have space preallocated
 			{
+				printk(KERN_INFO "requested brk is larger than the virtual brk but smaller the real brk - no need to allocate new memory");
 				mm->virtual_brk = brk;
-				goto success;
+				goto success; // and return the requested brk
 			}
 			else // no more space preallocated
 			{
+				printk(KERN_INFO "requested brk is larger than the virtual brk and also larger than the real break - need to continue with usual memory allocation");
 				// need to continue with standard allocation
-				// virtual brk remains, so that option 1 in the shrink branch applies
+				mm->virtual_brk = brk;
 			}
 		}
 		else // shrink request
@@ -231,9 +233,10 @@ SYSCALL_DEFINE1(brk, unsigned long, brk)
 			// 1. never shrink real brk, only reduce the virtual brk
 			// 2. shrink real brk and virtual brk
 			// 3. shrink real brk only below a specific threshold (e.g. original heap + mm->prealloc_brk_size)
-			// for now, take option 1
+			// for now, take option 1 because we can assume that the plan delivered the maximum memory allocation and we will most likely not need to allocate much more than the preallocation 
+			printk(KERN_INFO "shrink request - no deallocation, just redurce virtual brk");
 			mm->virtual_brk = brk;
-			goto success;
+			goto success; // and return the requested brk
 		}
 	}
 
@@ -328,7 +331,7 @@ success_unlocked:
 	userfaultfd_unmap_complete(mm, &uf);
 	if (populate)
 		mm_populate(oldbrk, newbrk - oldbrk);
-	printk(KERN_INFO "brk successful for process %i, mm is 0x%lx, origbrk=0x%lx, return brk=0x%lx\n", current->pid, (unsigned long) mm, origbrk, brk);
+	printk(KERN_INFO "brk successful for process %i, mm is 0x%lx, mm->virtual_brk=0x%lx, mm->brk=0x%lx, return brk=0x%lx\n", current->pid, (unsigned long) mm, mm->virtual_brk, mm->brk, brk);
 	return brk;
 
 out:
