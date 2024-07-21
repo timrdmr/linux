@@ -885,7 +885,7 @@ struct task_struct {
 	struct rb_node			pushable_dl_tasks;
 #endif
 
-	struct mm_struct		*mm;
+	struct mm_struct		*mm; // memory descriptor of the process 
 	struct mm_struct		*active_mm;
 	struct address_space		*faults_disabled_mapping;
 

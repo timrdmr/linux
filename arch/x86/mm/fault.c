@@ -1290,11 +1290,11 @@ void do_user_addr_fault(struct pt_regs *regs,
 	 * that the MM will prepare everything (e.g., break COW) such that
 	 * maybe_mkwrite() can create a proper shadow stack PTE.
 	 */
-	if (error_code & X86_PF_SHSTK)
+	if (error_code & X86_PF_SHSTK) // shadow stack access fault
 		flags |= FAULT_FLAG_WRITE;
-	if (error_code & X86_PF_WRITE)
+	if (error_code & X86_PF_WRITE) // write access
 		flags |= FAULT_FLAG_WRITE;
-	if (error_code & X86_PF_INSTR)
+	if (error_code & X86_PF_INSTR) // fault was an instruction fetch
 		flags |= FAULT_FLAG_INSTRUCTION;
 
 	/*
@@ -1335,7 +1335,7 @@ void do_user_addr_fault(struct pt_regs *regs,
 		count_vm_vma_lock_event(VMA_LOCK_SUCCESS);
 		return;
 	}
-	fault = handle_mm_fault(vma, address, flags | FAULT_FLAG_VMA_LOCK, regs);
+	fault = handle_mm_fault(vma, address, flags | FAULT_FLAG_VMA_LOCK, regs); // we go here
 	if (!(fault & (VM_FAULT_RETRY | VM_FAULT_COMPLETED)))
 		vma_end_read(vma);
 
