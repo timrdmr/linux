@@ -3307,6 +3307,13 @@ void preallocate_heap(struct mm_struct *mm)
 	mmap_write_unlock(mm);
 	// TODO: make sure that mmap_write_unlock(mm); is called in all cases
 
+	// preallocate pages
+	// mm_populate will invoke the page fault handler which increases the page fault count
+	// however, we should not consider heap pre-allocation as real page fault events
+	unsigned long original_min_flt = current->min_flt;
+	mm_populate(oldbrk, len);
+	current->min_flt = original_min_flt;
+
 	printk(KERN_INFO "heap preallocation finished for process %i, mm is 0x%lx, mm->brk=0x%lx, mm->virtual_brk=0x%lx\n", current->pid, (unsigned long) mm, mm->brk, mm->virtual_brk);
 
 	return;
