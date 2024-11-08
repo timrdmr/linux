@@ -3898,6 +3898,7 @@ static vm_fault_t pte_marker_clear(struct vm_fault *vmf)
 static vm_fault_t do_pte_missing(struct vm_fault *vmf)
 {
 	if (vma_is_anonymous(vmf->vma))
+		// annonymous memory is not mapped to other devices
 		return do_anonymous_page(vmf);
 	else
 		return do_fault(vmf);
@@ -4430,7 +4431,10 @@ static vm_fault_t do_anonymous_page(struct vm_fault *vmf)
 		return VM_FAULT_OOM;
 
 	/* Use the zero-page for reads */
-	if (!(vmf->flags & FAULT_FLAG_WRITE) &&
+	// there is an additional logic to assign a static zero page instead of filling the page with zeros now (for security reasons)
+	// the page is marked as not writeable, if the process will attempt to write, another page fault is triggered going the "copy on write" path [see "Understanding the Linux Kernel" p. 388]
+	// if we have a read access and a page fault, see page have never been written => content does not matter
+	if (!(vmf->flags & FAULT_FLAG_WRITE) && // if we have a read access
 			!mm_forbids_zeropage(vma->vm_mm)) {
 		entry = pte_mkspecial(pfn_pte(my_zero_pfn(vmf->address),
 						vma->vm_page_prot));
@@ -5363,11 +5367,11 @@ static vm_fault_t handle_pte_fault(struct vm_fault *vmf)
 		 * mode; but shmem or file collapse to THP could still morph
 		 * it into a huge pmd: just retry later if so.
 		 */
-		vmf->pte = pte_offset_map_nolock(vmf->vma->vm_mm, vmf->pmd,
+		vmf->pte = pte_offset_map_nolock(vmf->vma->vm_mm, vmf->pmd, // Pointer to pte entry matching the 'address'. NULL if the page table hasn't been allocated.
 						 vmf->address, &vmf->ptl);
 		if (unlikely(!vmf->pte))
 			return 0;
-		vmf->orig_pte = ptep_get_lockless(vmf->pte);
+		vmf->orig_pte = ptep_get_lockless(vmf->pte); //orig_pte holds Value of PTE at the time of fault
 		vmf->flags |= FAULT_FLAG_ORIG_PTE_VALID;
 
 		if (pte_none(vmf->orig_pte)) {

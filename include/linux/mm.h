@@ -44,6 +44,8 @@ extern int sysctl_page_lock_unfairness;
 void mm_core_init(void);
 void init_mm_internals(void);
 
+void preallocate_heap(struct mm_struct *mm);
+
 #ifndef CONFIG_NUMA		/* Don't use mapnrs, do it properly */
 extern unsigned long max_mapnr;
 
@@ -724,6 +726,8 @@ static bool __is_vma_write_locked(struct vm_area_struct *vma, int *mm_lock_seq)
 static inline void vma_start_write(struct vm_area_struct *vma)
 {
 	int mm_lock_seq;
+
+	// if the mm lock is not taken, we hit this assertion here because the semaphore count in vma->vm_mm->mmap_lock->count is 0
 
 	if (__is_vma_write_locked(vma, &mm_lock_seq))
 		return;

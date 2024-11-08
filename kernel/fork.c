@@ -1099,7 +1099,7 @@ void set_task_stack_end_magic(struct task_struct *tsk)
 
 static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 {
-	struct task_struct *tsk;
+	struct task_struct *tsk; // this one is filled and returned
 	int err;
 
 	if (node == NUMA_NO_NODE)
@@ -1307,6 +1307,10 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 
 	mm->user_ns = get_user_ns(user_ns);
 	lru_gen_init_mm(mm);
+
+	// initialize value, the size is set in the execve system call
+	mm->prealloc_brk_size = 0;
+
 	return mm;
 
 fail_pcpu:
@@ -1734,6 +1738,7 @@ static int copy_mm(unsigned long clone_flags, struct task_struct *tsk)
 		mmget(oldmm);
 		mm = oldmm;
 	} else {
+		// duplicates mm
 		mm = dup_mm(tsk, current->mm);
 		if (!mm)
 			return -ENOMEM;
@@ -2217,7 +2222,7 @@ __latent_entropy struct task_struct *copy_process(
 		goto fork_out;
 
 	retval = -ENOMEM;
-	p = dup_task_struct(current, node);
+	p = dup_task_struct(current, node); // creates the process descriptor (function defined in this file)
 	if (!p)
 		goto fork_out;
 	p->flags &= ~PF_KTHREAD;
@@ -2387,6 +2392,7 @@ __latent_entropy struct task_struct *copy_process(
 	retval = copy_signal(clone_flags, p);
 	if (retval)
 		goto bad_fork_cleanup_sighand;
+	// copy memory descriptor 
 	retval = copy_mm(clone_flags, p);
 	if (retval)
 		goto bad_fork_cleanup_signal;
@@ -2753,6 +2759,7 @@ struct task_struct *create_io_thread(int (*fn)(void *), void *arg, int node)
  *
  * args->exit_signal is expected to be checked for sanity by the caller.
  */
+// this function invoked when starting forking a process
 pid_t kernel_clone(struct kernel_clone_args *args)
 {
 	u64 clone_flags = args->flags;
@@ -2794,7 +2801,8 @@ pid_t kernel_clone(struct kernel_clone_args *args)
 			trace = 0;
 	}
 
-	p = copy_process(NULL, trace, NUMA_NO_NODE, args);
+	// copies process but does not starts it, invoked with NULL as PID
+	p = copy_process(NULL/*pid*/, trace, NUMA_NO_NODE, args);
 	add_latent_entropy();
 
 	if (IS_ERR(p))
@@ -2837,6 +2845,7 @@ pid_t kernel_clone(struct kernel_clone_args *args)
 	}
 
 	put_pid(pid);
+
 	return nr;
 }
 

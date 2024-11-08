@@ -997,6 +997,9 @@ SYSCALL_DEFINE1(exit, int, error_code)
 void __noreturn
 do_group_exit(int exit_code)
 {
+	// TODO: for some reasons this is printed unreliably
+	// printk(KERN_INFO "exit call for process %i, number of minor page faults: %lu", current->pid, current->min_flt);
+
 	struct signal_struct *sig = current->signal;
 
 	if (sig->flags & SIGNAL_GROUP_EXIT)

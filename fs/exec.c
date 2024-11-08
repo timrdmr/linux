@@ -1995,7 +1995,31 @@ static int do_execveat_common(int fd, struct filename *filename,
 		bprm->argc = 1;
 	}
 
+	// bprm_execve will suddenly call exec_binprm => search_binary_handler => load_elf_binary => fs/exec.c:begin_new_exec => fs/exec.c:exec_mmap which maps the mm_struct mm into the current task struct, begin_new_exec sets bprm->mm = NULL, thus we cannot get bprm->mm after this call, however, current is now mapped to the newly started process
+	// at this point, the heap has not been initialized, bprm->mm->brk is still 0
 	retval = bprm_execve(bprm);
+	// after this call, current->mm->brk is initialized in load_elf_binary, call-stack:
+	// #0  load_elf_binary (bprm=0xffff888003f62000) at fs/binfmt_elf.c:820
+	// #1  0xffffffff81267807 in search_binary_handler (bprm=0xffff888003f62000) at fs/exec.c:1797
+	// #2  exec_binprm (bprm=0xffff888003f62000) at fs/exec.c:1839
+
+	// printk(KERN_INFO "do_execveat_common finished bprm_execve() for current->pid %i and bprm->mm->brk=NULL, current->mm->brk=0x%lx\n", current->pid, (unsigned long) current->mm->brk);
+	// printk(KERN_INFO "do_execveat_common bprm_execve finished for current->pid %i and current->mm=0x%lx\n", current->pid, (unsigned long) current->mm);
+
+	/*
+		Currently, this is a prototype, a breakpoint can be used to break here, and modify
+		mm_new_process->prealloc_brk_size with the size in bytes of the pre-allocated heap
+		with the following gdb script:
+			b fs/exec.c:2020
+			commands
+			set mm_new_process->prealloc_brk_size = 45*4096
+			c
+			end
+	*/
+	struct mm_struct *mm_new_process = current->mm;
+	if (mm_new_process->prealloc_brk_size > 0)
+		preallocate_heap(mm_new_process);
+
 out_free:
 	free_bprm(bprm);
 
@@ -2069,6 +2093,7 @@ static int do_execve(struct filename *filename,
 {
 	struct user_arg_ptr argv = { .ptr.native = __argv };
 	struct user_arg_ptr envp = { .ptr.native = __envp };
+
 	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
 }
 
