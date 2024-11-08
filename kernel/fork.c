@@ -1308,7 +1308,7 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 	mm->user_ns = get_user_ns(user_ns);
 	lru_gen_init_mm(mm);
 
-	// TODO: pass from the plan, this is probably also the wrong place, better in execve syscall when the memory is really owned by the new process, otherwise this variable is overwritten in execve
+	// initialize value, the size is set in the execve system call
 	mm->prealloc_brk_size = 0;
 
 	return mm;
@@ -2845,12 +2845,6 @@ pid_t kernel_clone(struct kernel_clone_args *args)
 	}
 
 	put_pid(pid);
-
-	// printk(KERN_INFO "Fork for process %i done, mm is 0x%lx, current->mm is 0x%lx, parent is %i\n", p->pid, (unsigned long)p->mm, (unsigned long) current->mm,current->pid);
-	// if (p->mm)
-	// 	printk(KERN_INFO "Fork for process %i p->mm->start_data=0x%lx, p->mm->end_data=0x%lx\n", p->pid, p->mm->start_data, p->mm->end_data);
-	// if (current->mm)
-	// 	printk(KERN_INFO "Fork for process %i current->mm->start_data=0x%lx, current->mm->end_data=0x%lx\n", p->pid, current->mm->start_data, current->mm->end_data);
 
 	return nr;
 }

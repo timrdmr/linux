@@ -46,9 +46,6 @@ void init_mm_internals(void);
 
 void preallocate_heap(struct mm_struct *mm);
 
-int do_brk_without_flags(struct vma_iterator *vmi, struct vm_area_struct *brkvma,
-		unsigned long addr, unsigned long request);
-
 #ifndef CONFIG_NUMA		/* Don't use mapnrs, do it properly */
 extern unsigned long max_mapnr;
 
@@ -730,25 +727,7 @@ static inline void vma_start_write(struct vm_area_struct *vma)
 {
 	int mm_lock_seq;
 
-	// we hit this assertion here because the semaphore count in vma->vm_mm->mmap_lock->count is 0
-	// it was 1 before we call this function
-	// this is our call do_brk_flags (vmi=vmi@entry=0xffffc90000013e30, vma=0xffff888003f59960, addr=addr@entry=0xb17a000, len=len@entry=0x1000, flags=0x100073, flags@entry=0x0) at mm/mmap.c:3311
-	// but inbetween the execve syscall which seems to change the count to 0 after we are back here
-		// #0  vma_start_write (vma=0xffff888003f59460) at ./include/linux/mm.h:743
-		// #1  vma_link (mm=mm@entry=0xffff88800344ca80, vma=vma@entry=0xffff888003f59460) at mm/mmap.c:467
-		// #2  0xffffffff8120f80d in insert_vm_struct (mm=mm@entry=0xffff88800344ca80, vma=vma@entry=0xffff888003f59460) at mm/mmap.c:3482
-		// #3  0xffffffff81268490 in __bprm_mm_init (bprm=0xffff888003f62000) at fs/exec.c:291
-		// #4  bprm_mm_init (bprm=0xffff888003f62000) at fs/exec.c:395
-		// #5  alloc_bprm (fd=fd@entry=0xffffff9c, filename=filename@entry=0xffff888003ea9000, flags=flags@entry=0x0) at fs/exec.c:1599
-		// #6  0xffffffff812686e7 in do_execveat_common (fd=fd@entry=0xffffff9c, filename=0xffff888003ea9000, flags=0x0, argv=..., envp=...) at fs/exec.c:1949
-		// #7  0xffffffff8126969d in do_execve (__envp=0xb158f20, __argv=0xb158f10, filename=<optimized out>) at fs/exec.c:2072
-		// #8  __do_sys_execve (envp=0xb158f20, argv=0xb158f10, filename=<optimized out>) at fs/exec.c:2148
-		// #9  __se_sys_execve (envp=<optimized out>, argv=<optimized out>, filename=<optimized out>) at fs/exec.c:2143
-		// #10 __x64_sys_execve (regs=<optimized out>) at fs/exec.c:2143
-		// #11 0xffffffff81dc373e in do_syscall_x64 (nr=<optimized out>, regs=0xffffc90000197f58) at arch/x86/entry/common.c:52
-		// #12 do_syscall_64 (regs=0xffffc90000197f58, nr=<optimized out>) at arch/x86/entry/common.c:83
-		// #13 0xffffffff81e00122 in entry_SYSCALL_64 () at arch/x86/entry/entry_64.S:121
-	// also it is a different vma, so it should not interfere
+	// if the mm lock is not taken, we hit this assertion here because the semaphore count in vma->vm_mm->mmap_lock->count is 0
 
 	if (__is_vma_write_locked(vma, &mm_lock_seq))
 		return;

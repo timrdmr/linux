@@ -4432,7 +4432,7 @@ static vm_fault_t do_anonymous_page(struct vm_fault *vmf)
 
 	/* Use the zero-page for reads */
 	// there is an additional logic to assign a static zero page instead of filling the page with zeros now (for security reasons)
-	// the page is marked as not writeable, if the process will attempt to write, another page fault is triggered going the "copy on write" path [see ULK p. 388]
+	// the page is marked as not writeable, if the process will attempt to write, another page fault is triggered going the "copy on write" path [see "Understanding the Linux Kernel" p. 388]
 	// if we have a read access and a page fault, see page have never been written => content does not matter
 	if (!(vmf->flags & FAULT_FLAG_WRITE) && // if we have a read access
 			!mm_forbids_zeropage(vma->vm_mm)) {

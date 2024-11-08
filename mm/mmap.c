@@ -176,9 +176,8 @@ static int check_brk_limits(unsigned long addr, unsigned long len)
 static int do_brk_flags(struct vma_iterator *vmi, struct vm_area_struct *brkvma,
 		unsigned long addr, unsigned long request, unsigned long flags);
 
-// brk system call: modifies the size of the heap directly
-// return value of the new end address of the heap
-// (see page 395 in "Understanding Linux Kernel")
+// brk system call: modifies the size of the heap
+// returns new end address of the heap (or the old one in case of an error)
 SYSCALL_DEFINE1(brk, unsigned long, brk)
 {
 	unsigned long newbrk, oldbrk, origbrk;
@@ -193,7 +192,7 @@ SYSCALL_DEFINE1(brk, unsigned long, brk)
 		return -EINTR;
 
 	origbrk = mm->brk; // original end address of the heap
-	printk(KERN_INFO "brk syscall for process %i, mm is 0x%lx, origbrk=0x%lx, requested brk=0x%lx\n", current->pid, (unsigned long) mm, origbrk, brk);
+	// printk(KERN_INFO "brk syscall for process %i, mm is 0x%lx, origbrk=0x%lx, requested brk=0x%lx\n", current->pid, (unsigned long) mm, origbrk, brk);
 
 	/*
 		Handle heap preallocation
@@ -224,7 +223,7 @@ SYSCALL_DEFINE1(brk, unsigned long, brk)
 			{
 				printk(KERN_INFO "requested brk is larger than the virtual brk and also larger than the real break - need to continue with usual memory allocation");
 				// need to continue with standard allocation
-				mm->virtual_brk = brk;
+				mm->virtual_brk = brk; // TODO: only do this on success (in case of an error in default memory allocation)
 			}
 		}
 		else // shrink request
@@ -233,7 +232,7 @@ SYSCALL_DEFINE1(brk, unsigned long, brk)
 			// 1. never shrink real brk, only reduce the virtual brk
 			// 2. shrink real brk and virtual brk
 			// 3. shrink real brk only below a specific threshold (e.g. original heap + mm->prealloc_brk_size)
-			// for now, take option 1 because we can assume that the plan delivered the maximum memory allocation and we will most likely not need to allocate much more than the preallocation 
+			// for now, take option 1 because we can assume that the memory is reserved in advance anyway
 			printk(KERN_INFO "shrink request - no deallocation, just redurce virtual brk");
 			mm->virtual_brk = brk;
 			goto success; // and return the requested brk
@@ -268,7 +267,7 @@ SYSCALL_DEFINE1(brk, unsigned long, brk)
 		goto out;
 
 	// align to the next page (means it is a multiple of the page size)
-	newbrk = PAGE_ALIGN(brk); // target heap address => allocates only whole pages (p. 396)
+	newbrk = PAGE_ALIGN(brk); // target heap address => VMAs are always page aligned
 	oldbrk = PAGE_ALIGN(mm->brk); // old heap address
 	if (oldbrk == newbrk) {
 		// heap does not require a new page, new size fits in the current page
@@ -330,14 +329,15 @@ success:
 success_unlocked:
 	userfaultfd_unmap_complete(mm, &uf);
 	if (populate)
+		// results in the allocation of the pages, ends up in the same code as the page fault handler invokes
 		mm_populate(oldbrk, newbrk - oldbrk);
-	printk(KERN_INFO "brk successful for process %i, mm is 0x%lx, mm->virtual_brk=0x%lx, mm->brk=0x%lx, return brk=0x%lx\n", current->pid, (unsigned long) mm, mm->virtual_brk, mm->brk, brk);
+	// printk(KERN_INFO "brk successful for process %i, mm is 0x%lx, mm->virtual_brk=0x%lx, mm->brk=0x%lx, return brk=0x%lx\n", current->pid, (unsigned long) mm, mm->virtual_brk, mm->brk, brk);
 	return brk;
 
 out:
 	mm->brk = origbrk;
 	mmap_write_unlock(mm);
-	printk(KERN_INFO "brk failed for process %i, mm is 0x%lx, origbrk=0x%lx, return brk=0x%lx\n", current->pid, (unsigned long) mm, origbrk, brk);
+	// printk(KERN_INFO "brk failed for process %i, mm is 0x%lx, origbrk=0x%lx, return origbrk=0x%lx\n", current->pid, (unsigned long) mm, origbrk, origbrk);
 	return origbrk;
 }
 
@@ -3245,35 +3245,22 @@ void preallocate_heap(struct mm_struct *mm)
 	if (mmap_write_lock_killable(mm))
 		// TODO: error handling
 		return;
-	/* 	
-		set virtual brk to initial brk to be able to return the brk pointer
-		usual when a brk syscall comes in
-	*/ 
+
+	// set the virtual brk to the initial brk to be able to return the brk pointer as usual when a brk syscall comes in
 	mm->virtual_brk = mm->brk;
 
-	/*	
-		Adjust the memory region of the heap: increase size of the virtual
-		memory area (vma)
-	*/
+	// Adjust the memory region of the heap: increase size of the virtual memory area (vma)
 	unsigned long newbrk = mm->brk + mm->prealloc_brk_size;
 	newbrk = PAGE_ALIGN(newbrk);
 
 	struct vma_iterator vmi;
 	unsigned long oldbrk = PAGE_ALIGN(mm->brk);
 	vma_iter_init(&vmi, mm, oldbrk);
-	// get previous entry of the B-tree for handling vmas 
-	struct vm_area_struct *brkvma = mas_prev(&vmi.mas, mm->start_brk);
+	struct vm_area_struct *brkvma = mas_prev(&vmi.mas, mm->start_brk); // TOOD: check if needed to initialize iterator, otherwise remove
 
-	// TODO: calling do_brk_flags does not work, because it takes mm from current->mm and this is to be different because usually we are in a system call, here current is the process that invoked fork and not the user proccess!
-	// int err = do_brk_without_flags(&vmi, brkvma, oldbrk, newbrk - oldbrk);
-	// if (err < 0)
-	// {
-	// 	// increasing the vma was not successful, thus skip page table preallocation
-	// 	mmap_write_unlock(mm);
-	// 	return nr;
-	// }
-
-	// now, proceed like in do_brk_flags
+	/*
+		Now, proceed like in do_brk_flags vvv
+	*/
 	unsigned long len = newbrk - oldbrk;
 	unsigned long flags = VM_DATA_DEFAULT_FLAGS | VM_ACCOUNT | mm->def_flags;
 
@@ -3302,12 +3289,16 @@ void preallocate_heap(struct mm_struct *mm)
 		mm->locked_vm += (len >> PAGE_SHIFT);
 	vm_flags_set(brkvma, VM_SOFTDIRTY);
 
-	// memory setup was successful
+	/*
+		memory setup was successful,
+		end of steps done in do_brk_flags ^^^
+	*/
+
 	mm->brk = newbrk;
 	mmap_write_unlock(mm);
 	// TODO: make sure that mmap_write_unlock(mm); is called in all cases
 
-	// preallocate pages
+	// VMA has been set up, now allocate the pages using mm_populate (see brk system call)
 	// mm_populate will invoke the page fault handler which increases the page fault count
 	// however, we should not consider heap pre-allocation as real page fault events
 	unsigned long original_min_flt = current->min_flt;
@@ -3318,23 +3309,12 @@ void preallocate_heap(struct mm_struct *mm)
 
 	return;
 
-	/*
-		Preallocate pages
-	*/
-	// TODO: implement
-
 mas_store_fail:
 	vm_area_free(brkvma);
 unacct_fail:
 	vm_unacct_memory(len >> PAGE_SHIFT);
 
 	printk(KERN_INFO "heap preallocation failed   for process %i, mm is 0x%lx, mm->brk=0x%lx, mm->virtual_brk=0x%lx\n", current->pid, (unsigned long) mm, mm->brk, mm->virtual_brk);
-}
-
-int do_brk_without_flags(struct vma_iterator *vmi, struct vm_area_struct *vma,
-		unsigned long addr, unsigned long len)
-{
-	return do_brk_flags(vmi, vma, addr, len, 0);
 }
 
 /*
@@ -3373,16 +3353,16 @@ static int do_brk_flags(struct vma_iterator *vmi, struct vm_area_struct *vma,
 	 * Expand the existing vma if possible; Note that singular lists do not
 	 * occur after forking, so the expand will only happen on new VMAs.
 	 */
-	// vma->vm_end == addr (the end of the vma == start address of new memory)
-	if (vma && vma->vm_end == addr && !vma_policy(vma) && 
-		// and if we can merge
-		can_vma_merge_after(vma, flags, NULL, NULL, addr >> PAGE_SHIFT, NULL_VM_UFFD_CTX, NULL) )
+	if (vma // VMA exists
+		&& vma->vm_end == addr // and the end of the vma == start address of new memory
+		&& !vma_policy(vma) // NUMA policy not defined
+		// and if we can merge after existing VMA
+		&& can_vma_merge_after(vma, flags, NULL, NULL, addr >> PAGE_SHIFT, NULL_VM_UFFD_CTX, NULL) )
 	{
 		vma_iter_config(vmi, vma->vm_start, addr + len);
 		if (vma_iter_prealloc(vmi, vma))
 			goto unacct_fail;
 
-		// TODO: looks like we hit an assertion in here (write lock not taken)
 		vma_start_write(vma);
 
 		init_vma_prep(&vp, vma);
@@ -3399,10 +3379,10 @@ static int do_brk_flags(struct vma_iterator *vmi, struct vm_area_struct *vma,
 		goto out;
 	}
 
-	// expanding was not possible
-	// TODO: why? maybe:
-	// - there was previously no vma for the heap?
-	// - a the memory region has different flags (e.g. all pages are swapped out)?
+	// expanding was not possible:
+	// - there was previously no vma for the heap
+	// - a the memory region has different flags (e.g. all pages are swapped out)
+	// - vma_policy defined
 
 	if (vma)
 		vma_iter_next_range(vmi);
